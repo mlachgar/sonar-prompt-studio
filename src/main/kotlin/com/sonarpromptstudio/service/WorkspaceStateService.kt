@@ -25,10 +25,14 @@ data class ModeState<T>(
     val selectedKeys: MutableSet<String> = linkedSetOf(),
 )
 
-class WorkspaceStateService(private val project: Project) {
+class WorkspaceStateService @JvmOverloads constructor(
+    @Suppress("UNUSED_PARAMETER") private val project: Project? = null,
+    initialPromptTarget: PromptTarget? = null,
+    initialPromptStyle: PromptStyle? = null,
+) {
     var currentMode: WorkspaceMode = WorkspaceMode.ISSUES
-    var currentPromptTarget: PromptTarget = SonarSettingsService.getInstance().defaultPromptTarget()
-    var currentPromptStyle: PromptStyle = SonarSettingsService.getInstance().defaultPromptStyle()
+    var currentPromptTarget: PromptTarget = initialPromptTarget ?: SonarSettingsService.getInstance().defaultPromptTarget()
+    var currentPromptStyle: PromptStyle = initialPromptStyle ?: SonarSettingsService.getInstance().defaultPromptStyle()
     var lastGeneratedPrompt: String = ""
     var lastSnapshot: FindingsSnapshot = FindingsSnapshot()
     var lastProfile: ConnectionProfile? = null

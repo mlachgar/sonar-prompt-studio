@@ -4,7 +4,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import java.util.concurrent.CopyOnWriteArrayList
 
-class UiRefreshService(private val project: Project) {
+class UiRefreshService(@Suppress("UNUSED_PARAMETER") private val project: Project? = null) {
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
     fun subscribe(listener: () -> Unit): () -> Unit {

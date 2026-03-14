@@ -49,8 +49,10 @@ import javax.swing.JTextField
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
 import javax.swing.JViewport
+import javax.swing.RowSorter
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.DefaultTableModel
+import javax.swing.table.TableRowSorter
 
 class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(BorderLayout()) {
     private val settings = SonarSettingsService.getInstance()
@@ -498,6 +500,7 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
 
     private fun selectionTable(model: DefaultTableModel, layout: TableLayout): JTable = FlexibleTable(model).apply {
         autoCreateRowSorter = true
+        rowSorter = createSorter(model, layout)
         autoResizeMode = JTable.AUTO_RESIZE_OFF
         setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
         rowHeight = JBUI.scale(28)
@@ -518,6 +521,45 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
         columnModel.getColumn(0).maxWidth = JBUI.scale(72)
         columnModel.getColumn(0).preferredWidth = JBUI.scale(72)
         styleTableColumns(this, layout)
+    }
+
+    private fun createSorter(model: DefaultTableModel, layout: TableLayout): RowSorter<out DefaultTableModel> =
+        TableRowSorter(model).apply {
+            when (layout) {
+                TableLayout.ISSUES -> {
+                    setComparator(0, compareBy<Boolean> { it })
+                    setComparator(5, numericComparator())
+                }
+                TableLayout.COVERAGE -> {
+                    setComparator(0, compareBy<Boolean> { it })
+                    setComparator(2, numericComparator())
+                    setComparator(3, numericComparator())
+                    setComparator(4, numericComparator())
+                    setComparator(5, numericComparator())
+                    setComparator(6, numericComparator())
+                }
+                TableLayout.DUPLICATION -> {
+                    setComparator(0, compareBy<Boolean> { it })
+                    setComparator(2, numericComparator())
+                    setComparator(3, numericComparator())
+                    setComparator(4, numericComparator())
+                }
+                TableLayout.HOTSPOTS -> {
+                    setComparator(0, compareBy<Boolean> { it })
+                    setComparator(2, numericComparator())
+                }
+            }
+            sortsOnUpdates = true
+        }
+
+    private fun numericComparator(): Comparator<Any> = Comparator { left, right ->
+        compareValues(parseSortableNumber(left), parseSortableNumber(right))
+    }
+
+    private fun parseSortableNumber(value: Any?): Double? = when (value) {
+        null -> null
+        is Number -> value.toDouble()
+        else -> value.toString().trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()
     }
 
     private fun styleTableColumns(table: JTable, layout: TableLayout) {

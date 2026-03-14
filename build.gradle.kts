@@ -38,6 +38,15 @@ sonar {
         property("sonar.projectKey", "mlachgar_sonar-prompt-studio")
         property("sonar.organization", "mlachgar")
         property("sonar.coverage.jacoco.xmlReportPaths", layout.buildDirectory.file("reports/jacoco/test/jacocoTestReport.xml").get().asFile.path)
+        property(
+            "sonar.coverage.exclusions",
+            listOf(
+                "src/main/kotlin/com/sonarpromptstudio/actions/**",
+                "src/main/kotlin/com/sonarpromptstudio/startup/**",
+                "src/main/kotlin/com/sonarpromptstudio/ui/**",
+                "src/main/kotlin/com/sonarpromptstudio/util/UiUtils.kt",
+            ).joinToString(","),
+        )
     }
 }
 
@@ -48,12 +57,6 @@ tasks {
             "com/sonarpromptstudio/startup/**",
             "com/sonarpromptstudio/ui/**",
             "com/sonarpromptstudio/util/UiUtils*",
-            "com/sonarpromptstudio/service/DiscoveredProjectService*",
-            "com/sonarpromptstudio/service/FindingsService*",
-            "com/sonarpromptstudio/service/SecureTokenService*",
-            "com/sonarpromptstudio/service/SonarSettingsService*",
-            "com/sonarpromptstudio/service/UiRefreshService*",
-            "com/sonarpromptstudio/service/WorkspaceStateService*",
         )
     }
 

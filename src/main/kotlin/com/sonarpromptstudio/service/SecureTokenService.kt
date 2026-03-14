@@ -7,23 +7,26 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.sonarpromptstudio.util.SonarEnvReader
 
-class SecureTokenService {
+class SecureTokenService(
+    private val tokenStore: TokenStore = PasswordSafeTokenStore,
+    private val envTokenReader: (Project) -> String? = SonarEnvReader::readToken,
+) {
     fun loadToken(project: Project, profileId: String): String? {
-        val stored = PasswordSafe.instance.getPassword(attributes(profileId))
+        val stored = tokenStore.getPassword(attributes(profileId))
         if (!stored.isNullOrBlank()) return stored
         return loadEnvToken(project)
     }
 
-    fun loadEnvToken(project: Project): String? = SonarEnvReader.readToken(project)
+    fun loadEnvToken(project: Project): String? = envTokenReader(project)
 
-    fun hasSecureToken(profileId: String): Boolean = !PasswordSafe.instance.getPassword(attributes(profileId)).isNullOrBlank()
+    fun hasSecureToken(profileId: String): Boolean = !tokenStore.getPassword(attributes(profileId)).isNullOrBlank()
 
     fun saveToken(profileId: String, token: String) {
-        PasswordSafe.instance[attributes(profileId)] = Credentials(profileId, token)
+        tokenStore.set(attributes(profileId), Credentials(profileId, token))
     }
 
     fun removeToken(profileId: String) {
-        PasswordSafe.instance[attributes(profileId)] = null
+        tokenStore.set(attributes(profileId), null)
     }
 
     private fun attributes(profileId: String): CredentialAttributes =
@@ -32,5 +35,18 @@ class SecureTokenService {
     companion object {
         fun getInstance(): SecureTokenService =
             ApplicationManager.getApplication().getService(SecureTokenService::class.java)
+    }
+}
+
+interface TokenStore {
+    fun getPassword(attributes: CredentialAttributes): String?
+    fun set(attributes: CredentialAttributes, credentials: Credentials?)
+}
+
+private object PasswordSafeTokenStore : TokenStore {
+    override fun getPassword(attributes: CredentialAttributes): String? = PasswordSafe.instance.getPassword(attributes)
+
+    override fun set(attributes: CredentialAttributes, credentials: Credentials?) {
+        PasswordSafe.instance[attributes] = credentials
     }
 }

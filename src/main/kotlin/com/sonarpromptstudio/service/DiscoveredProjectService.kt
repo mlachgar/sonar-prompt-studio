@@ -10,28 +10,35 @@ import com.sonarpromptstudio.discovery.SonarProjectDiscovery
 import com.sonarpromptstudio.model.DiscoveredSonarProject
 import java.nio.file.Path
 
-class DiscoveredProjectService(private val project: Project) {
-    private val settings = SonarSettingsService.getInstance()
+class DiscoveredProjectService @JvmOverloads constructor(
+    private val project: Project? = null,
+    private val settings: SonarSettingsService = SonarSettingsService.getInstance(),
+    private val basePathOverride: String? = null,
+    private val discoverProjects: (Path) -> List<DiscoveredSonarProject> = SonarProjectDiscovery::discover,
+    subscribeToWorkspaceChanges: Boolean = true,
+) {
     private var connection: MessageBusConnection? = null
     @Volatile
     private var discoveredProjects: List<DiscoveredSonarProject> = emptyList()
 
     init {
         rescan()
-        connection = project.messageBus.connect().apply {
-            subscribe(WorkspaceModelTopics.CHANGED, object : WorkspaceModelChangeListener {
-                override fun changed(event: VersionedStorageChange) {
-                    rescan()
-                }
-            })
+        if (project != null && subscribeToWorkspaceChanges) {
+            connection = project.messageBus.connect().apply {
+                subscribe(WorkspaceModelTopics.CHANGED, object : WorkspaceModelChangeListener {
+                    override fun changed(event: VersionedStorageChange) {
+                        rescan()
+                    }
+                })
+            }
         }
     }
 
     fun rescan(): List<DiscoveredSonarProject> {
-        val basePath = project.basePath ?: run {
+        val basePath = basePathOverride ?: project?.basePath ?: run {
             return emptyList()
         }
-        val found = SonarProjectDiscovery.discover(Path.of(basePath))
+        val found = discoverProjects(Path.of(basePath))
         discoveredProjects = found
         val active = settings.activeProjectPath()
         if (found.isNotEmpty() && active == null) {
