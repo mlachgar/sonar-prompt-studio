@@ -1,0 +1,65 @@
+<idea-plugin>
+    <id>com.sonarpromptstudio.intellij</id>
+    <name>Sonar Prompt Studio</name>
+    <vendor email="support@example.com" url="https://example.com">Sonar Prompt Studio</vendor>
+    <description><![CDATA[
+        Native IntelliJ IDEA plugin for SonarQube Cloud and SonarQube Server findings review and prompt generation.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="Sonar Prompt Studio" displayType="BALLOON" isLogByDefault="true"/>
+        <applicationService serviceImplementation="com.sonarpromptstudio.service.SonarSettingsService"/>
+        <applicationService serviceImplementation="com.sonarpromptstudio.service.SecureTokenService"/>
+        <projectService serviceImplementation="com.sonarpromptstudio.service.DiscoveredProjectService"/>
+        <projectService serviceImplementation="com.sonarpromptstudio.service.FindingsService"/>
+        <projectService serviceImplementation="com.sonarpromptstudio.service.WorkspaceStateService"/>
+        <projectService serviceImplementation="com.sonarpromptstudio.service.UiRefreshService"/>
+
+        <toolWindow id="Sonar Prompt Studio"
+                    anchor="bottom"
+                    factoryClass="com.sonarpromptstudio.ui.WorkspaceToolWindowFactory"
+                    icon="/icons/sonarPromptStudio.svg"/>
+
+        <postStartupActivity implementation="com.sonarpromptstudio.startup.SonarStartupActivity"/>
+
+        <applicationConfigurable instance="com.sonarpromptstudio.ui.SonarSettingsConfigurable"
+                                 displayName="Sonar Prompt Studio"
+                                 id="com.sonarpromptstudio.intellij.settings"/>
+    </extensions>
+
+    <actions>
+        <action id="SonarPromptStudio.OpenConfiguration"
+                class="com.sonarpromptstudio.actions.OpenConfigurationAction"
+                text="Open Sonar Prompt Studio Configuration"/>
+        <action id="SonarPromptStudio.OpenWorkspace"
+                class="com.sonarpromptstudio.actions.OpenWorkspaceAction"
+                text="Open Sonar Prompt Studio"/>
+        <action id="SonarPromptStudio.ResetConnectionsAndProjects"
+                class="com.sonarpromptstudio.actions.ResetConnectionsAndProjectsAction"
+                text="Reset Connections And Projects"/>
+        <action id="SonarPromptStudio.RefreshFindings"
+                class="com.sonarpromptstudio.actions.RefreshFindingsAction"
+                text="Refresh Findings"/>
+        <action id="SonarPromptStudio.GeneratePrompt"
+                class="com.sonarpromptstudio.actions.GeneratePromptAction"
+                text="Generate Prompt"/>
+        <action id="SonarPromptStudio.RegeneratePrompt"
+                class="com.sonarpromptstudio.actions.RegeneratePromptAction"
+                text="Re-Generate Prompt"/>
+        <action id="SonarPromptStudio.CopyPrompt"
+                class="com.sonarpromptstudio.actions.CopyPromptAction"
+                text="Copy Prompt"/>
+
+        <group id="SonarPromptStudio.Group" text="Sonar Prompt Studio" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <reference ref="SonarPromptStudio.OpenWorkspace"/>
+            <reference ref="SonarPromptStudio.RefreshFindings"/>
+            <separator/>
+            <reference ref="SonarPromptStudio.OpenConfiguration"/>
+            <reference ref="SonarPromptStudio.ResetConnectionsAndProjects"/>
+        </group>
+    </actions>
+</idea-plugin>
