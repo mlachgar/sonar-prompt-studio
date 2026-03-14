@@ -10,7 +10,7 @@ plugins {
     kotlin("jvm") version "1.9.24"
     kotlin("plugin.serialization") version "1.9.24"
     id("org.jetbrains.intellij") version "1.17.4"
-    id("org.sonarqube") version "7.1.0.6387"
+    id("org.sonarqube") version "7.2.3.7755"
     jacoco
 }
 
@@ -31,6 +31,14 @@ intellij {
     version.set(providers.gradleProperty("intellijVersion"))
     type.set("IC")
     plugins.set(listOf("com.intellij.java"))
+}
+
+sonar {
+    properties {
+        property("sonar.projectKey", "mlachgar_sonar-prompt-studio")
+        property("sonar.organization", "mlachgar")
+        property("sonar.coverage.jacoco.xmlReportPaths", layout.buildDirectory.file("reports/jacoco/test/jacocoTestReport.xml").get().asFile.path)
+    }
 }
 
 tasks {
