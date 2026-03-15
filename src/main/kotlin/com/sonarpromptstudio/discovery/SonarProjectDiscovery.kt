@@ -3,20 +3,17 @@ package com.sonarpromptstudio.discovery
 import com.sonarpromptstudio.model.DiscoveredSonarProject
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Properties
+import java.util.*
 import kotlin.io.path.isDirectory
-import kotlin.io.path.name
 
 object SonarProjectDiscovery {
     private const val SONAR_PROJECT_PROPERTIES = "sonar-project.properties"
+    private const val SONAR_PROJECT_KEY = "sonar.projectKey"
+    private const val SONAR_ORGANIZATION = "sonar.organization"
     private val GRADLE_BUILD_FILES = listOf("build.gradle.kts", "build.gradle")
     private val GRADLE_PROPERTY_PATTERNS = mapOf(
-        "sonar.projectKey" to Regex(
-            """(?m)(?:property\s*\(\s*["']sonar\.projectKey["']\s*,\s*["']([^"']+)["']\s*\)|property\s+["']sonar\.projectKey["']\s*,\s*["']([^"']+)["']|["']sonar\.projectKey["']\s*[:=]\s*["']([^"']+)["'])""",
-        ),
-        "sonar.organization" to Regex(
-            """(?m)(?:property\s*\(\s*["']sonar\.organization["']\s*,\s*["']([^"']+)["']\s*\)|property\s+["']sonar\.organization["']\s*,\s*["']([^"']+)["']|["']sonar\.organization["']\s*[:=]\s*["']([^"']+)["'])""",
-        ),
+        SONAR_PROJECT_KEY to gradlePropertyPatterns(SONAR_PROJECT_KEY),
+        SONAR_ORGANIZATION to gradlePropertyPatterns(SONAR_ORGANIZATION),
     )
 
     fun discover(basePath: Path): List<DiscoveredSonarProject> {
@@ -57,8 +54,8 @@ object SonarProjectDiscovery {
     private fun readPropertiesProject(candidate: DiscoveryCandidate): DiscoveredProjectCandidate? {
         val properties = Properties()
         Files.newInputStream(candidate.path).use(properties::load)
-        val key = properties.getProperty("sonar.projectKey")?.trim()?.ifBlank { null } ?: return null
-        val organization = properties.getProperty("sonar.organization")?.trim()?.ifBlank { null }
+        val key = properties.getProperty(SONAR_PROJECT_KEY)?.trim()?.ifBlank { null } ?: return null
+        val organization = properties.getProperty(SONAR_ORGANIZATION)?.trim()?.ifBlank { null }
         return DiscoveredProjectCandidate(
             project = DiscoveredSonarProject(
                 path = candidate.path.parent.toString(),
@@ -71,8 +68,8 @@ object SonarProjectDiscovery {
 
     private fun readGradleProject(candidate: DiscoveryCandidate): DiscoveredProjectCandidate? {
         val content = Files.readString(candidate.path)
-        val key = extractGradleProperty(content, "sonar.projectKey") ?: return null
-        val organization = extractGradleProperty(content, "sonar.organization")
+        val key = extractGradleProperty(content, SONAR_PROJECT_KEY) ?: return null
+        val organization = extractGradleProperty(content, SONAR_ORGANIZATION)
         return DiscoveredProjectCandidate(
             project = DiscoveredSonarProject(
                 path = candidate.path.parent.toString(),
@@ -85,12 +82,21 @@ object SonarProjectDiscovery {
 
     private fun extractGradleProperty(content: String, propertyName: String): String? =
         GRADLE_PROPERTY_PATTERNS.getValue(propertyName)
-            .find(content)
+            .firstNotNullOfOrNull { it.find(content) }
             ?.groupValues
             ?.drop(1)
             ?.firstOrNull { it.isNotBlank() }
             ?.trim()
             ?.ifBlank { null }
+
+    private fun gradlePropertyPatterns(propertyName: String): List<Regex> {
+        val escapedName = Regex.escape(propertyName)
+        return listOf(
+            Regex("""(?m)property\s*\(\s*["']$escapedName["']\s*,\s*["']([^"']+)["']\s*\)"""),
+            Regex("""(?m)property\s+["']$escapedName["']\s*,\s*["']([^"']+)["']"""),
+            Regex("""(?m)["']$escapedName["']\s*[:=]\s*["']([^"']+)["']"""),
+        )
+    }
 
     private data class DiscoveryCandidate(
         val path: Path,
