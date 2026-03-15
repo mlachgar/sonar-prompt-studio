@@ -10,15 +10,15 @@ val junitJupiterVersion = "5.10.2"
 val junitPlatformVersion = "1.10.2"
 
 plugins {
-    kotlin("jvm") version "1.9.24"
-    kotlin("plugin.serialization") version "1.9.24"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
     id("org.jetbrains.intellij.platform") version "2.13.0"
     id("org.sonarqube") version "7.2.3.7755"
     jacoco
 }
 
 group = "com.sonarpromptstudio"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     mavenCentral()
@@ -61,7 +61,7 @@ intellijPlatform {
     buildSearchableOptions = false
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "242"
+            sinceBuild = "252"
             untilBuild = provider { null }
         }
         changeNotes = provider {
