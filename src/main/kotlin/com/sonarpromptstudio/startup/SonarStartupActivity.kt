@@ -10,14 +10,9 @@ import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.util.Key
 import com.sonarpromptstudio.model.AuthMode
-import com.sonarpromptstudio.model.ConnectionDiagnostics
 import com.sonarpromptstudio.model.ConnectionProfile
 import com.sonarpromptstudio.model.SonarProfileType
-import com.sonarpromptstudio.service.DiscoveredProjectService
-import com.sonarpromptstudio.service.FindingsService
-import com.sonarpromptstudio.service.SecureTokenService
-import com.sonarpromptstudio.service.SonarSettingsService
-import com.sonarpromptstudio.service.UiRefreshService
+import com.sonarpromptstudio.service.*
 import com.sonarpromptstudio.ui.UiFacade
 import java.util.concurrent.ConcurrentHashMap
 

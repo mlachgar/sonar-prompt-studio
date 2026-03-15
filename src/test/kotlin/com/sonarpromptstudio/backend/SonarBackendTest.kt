@@ -18,6 +18,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SonarBackendTest {
@@ -41,8 +42,26 @@ class SonarBackendTest {
     }
 
     @Test
+    fun `reports invalid url diagnostics for blank base url on server profiles`() {
+        val diagnostics = backend.testConnection(serverProfile("  "), "token", serverProject)
+
+        assertFalse(diagnostics.success)
+        assertEquals("Invalid URL", diagnostics.summary)
+        assertContains(diagnostics.details.single(), "required")
+    }
+
+    @Test
     fun `reports invalid url diagnostics when host is missing`() {
         val diagnostics = backend.testConnection(serverProfile("https:///missing-host"), "token", serverProject)
+
+        assertFalse(diagnostics.success)
+        assertEquals("Invalid URL", diagnostics.summary)
+        assertContains(diagnostics.details.single(), "full http(s) URL")
+    }
+
+    @Test
+    fun `reports invalid url diagnostics when scheme is unsupported`() {
+        val diagnostics = backend.testConnection(serverProfile("ftp://localhost"), "token", serverProject)
 
         assertFalse(diagnostics.success)
         assertEquals("Invalid URL", diagnostics.summary)
@@ -133,6 +152,35 @@ class SonarBackendTest {
 
         assertFalse(diagnostics.success)
         assertEquals("Network failure", diagnostics.summary)
+    }
+
+    @Test
+    fun `reports network failure when api returns unauthorized`() {
+        startServer { exchange ->
+            exchange.respond("""{"errors":[{"msg":"unauthorized"}]}""", 401)
+        }
+
+        val diagnostics = backend.testConnection(serverProfile(serverBaseUrl()), "token", serverProject)
+
+        assertFalse(diagnostics.success)
+        assertEquals("Network failure", diagnostics.summary)
+        assertContains(diagnostics.details.single(), "Authentication failure (401)")
+    }
+
+    @Test
+    fun `reports project validation failure when response payload is invalid`() {
+        startServer { exchange ->
+            when (exchange.requestURI.path) {
+                "/api/authentication/validate" -> exchange.respond("""{"valid":true}""")
+                "/api/components/search_projects" -> exchange.respond("""not-json""")
+                else -> exchange.respond("""{}""")
+            }
+        }
+
+        val diagnostics = backend.testConnection(serverProfile(serverBaseUrl()), "token", serverProject)
+
+        assertFalse(diagnostics.success)
+        assertEquals("Project validation failure", diagnostics.summary)
     }
 
     @Test
@@ -228,6 +276,122 @@ class SonarBackendTest {
         )
         val hotspotRequest = requests.single { it.path == "/api/hotspots/search" }
         assertEquals("demo-key", hotspotRequest.query["projectKey"])
+    }
+
+    @Test
+    fun `loads findings with optional field fallbacks and filters only actionable files`() {
+        val requests = mutableListOf<RecordedRequest>()
+        startServer { exchange ->
+            requests += exchange.record()
+            when (exchange.requestURI.path) {
+                "/api/issues/search" -> exchange.respond(
+                    """
+                    {"issues":[
+                      {"key":"I-1"}
+                    ]}
+                    """.trimIndent(),
+                )
+                "/api/measures/component_tree" -> when (exchange.requestURI.query.orEmpty().contains("coverage")) {
+                    true -> exchange.respond(
+                        """
+                        {"components":[
+                          {"key":"C-1","name":"Named.kt","measures":[
+                            {"metric":"uncovered_conditions","value":"3"}
+                          ]},
+                          {"key":"C-2","measures":[
+                            {"metric":"coverage","value":"oops"},
+                            {"metric":"uncovered_lines","value":"0"},
+                            {"metric":"uncovered_conditions","value":"0"}
+                          ]}
+                        ]}
+                        """.trimIndent(),
+                    )
+                    false -> exchange.respond(
+                        """
+                        {"components":[
+                          {"key":"D-1","measures":[
+                            {"metric":"duplicated_blocks","value":"2"}
+                          ]},
+                          {"key":"D-2","name":"Ignore.kt","measures":[
+                            {"metric":"duplicated_lines","value":"0"},
+                            {"metric":"duplicated_blocks","value":"0"}
+                          ]}
+                        ]}
+                        """.trimIndent(),
+                    )
+                }
+                "/api/hotspots/search" -> exchange.respond(
+                    """
+                    {"hotspots":[
+                      {"key":"H-1"}
+                    ]}
+                    """.trimIndent(),
+                )
+                else -> exchange.respond("""{}""")
+            }
+        }
+
+        val snapshot = backend.loadFindings(
+            profile = ConnectionProfile(
+                id = "cloud",
+                name = "Cloud",
+                type = SonarProfileType.CLOUD,
+                baseUrl = "${serverBaseUrl()}/",
+                branchOverride = "feature/test branch",
+                pullRequestOverride = "77",
+                authMode = AuthMode.BEARER,
+            ),
+            token = "token",
+            project = cloudProject,
+        )
+
+        assertEquals("", snapshot.issues.single().component)
+        assertEquals("CODE_SMELL", snapshot.issues.single().type)
+        assertEquals(emptyList(), snapshot.issues.single().tags)
+        assertEquals("Named.kt", snapshot.coverage.single().path)
+        assertNull(snapshot.coverage.single().coverage)
+        assertEquals(3, snapshot.coverage.single().uncoveredBranches)
+        assertEquals("D-1", snapshot.duplication.single().path)
+        assertEquals(2, snapshot.duplication.single().duplicatedBlocks)
+        assertEquals("", snapshot.hotspots.single().component)
+        assertEquals("", snapshot.hotspots.single().message)
+
+        val issueRequest = requests.single { it.path == "/api/issues/search" }
+        assertEquals("feature/test branch", issueRequest.query["branch"])
+        assertEquals("demo-org", issueRequest.query["organization"])
+        val coverageRequest = requests.first { it.path == "/api/measures/component_tree" }
+        assertEquals("demo-key", coverageRequest.query["component"])
+        assertEquals("77", coverageRequest.query["pullRequest"])
+    }
+
+    @Test
+    fun `omits sonarcloud organization parameter when testing server findings`() {
+        val requests = mutableListOf<RecordedRequest>()
+        startServer { exchange ->
+            requests += exchange.record()
+            when (exchange.requestURI.path) {
+                "/api/issues/search" -> exchange.respond("""{"issues":[]}""")
+                "/api/measures/component_tree" -> exchange.respond("""{"components":[]}""")
+                "/api/hotspots/search" -> exchange.respond("""{"hotspots":[]}""")
+                else -> exchange.respond("""{}""")
+            }
+        }
+
+        backend.loadFindings(
+            profile = ConnectionProfile(
+                id = "server",
+                name = "Server",
+                type = SonarProfileType.SERVER,
+                baseUrl = serverBaseUrl(),
+                authMode = AuthMode.BEARER,
+            ),
+            token = "token",
+            project = serverProject,
+        )
+
+        requests.forEach { request ->
+            assertFalse(request.query.containsKey("organization"))
+        }
     }
 
     @Test

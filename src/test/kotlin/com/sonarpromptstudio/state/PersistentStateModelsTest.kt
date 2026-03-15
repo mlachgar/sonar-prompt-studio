@@ -32,6 +32,38 @@ class PersistentStateModelsTest {
     }
 
     @Test
+    fun `sonar settings service load state restores persisted values`() {
+        val service = com.sonarpromptstudio.service.SonarSettingsService()
+        val state = SonarSettingsState(
+            activeProfileId = "p1",
+            profiles = mutableListOf(
+                ConnectionProfileState(
+                    id = "p1",
+                    name = "Cloud",
+                    type = SonarProfileType.CLOUD.name,
+                    baseUrl = "https://sonarcloud.io",
+                    authMode = AuthMode.BEARER.name,
+                ),
+            ),
+            activeProjectPath = "/tmp/repo",
+            defaultPromptTarget = PromptTarget.CLAUDE,
+            defaultPromptStyle = PromptStyle.GUIDED,
+            groupingMode = "file",
+            onboardingShown = true,
+        )
+
+        service.loadState(state)
+
+        assertEquals(state, service.state)
+        assertEquals("p1", service.activeProfileId())
+        assertEquals("/tmp/repo", service.activeProjectPath())
+        assertEquals(PromptTarget.CLAUDE, service.defaultPromptTarget())
+        assertEquals(PromptStyle.GUIDED, service.defaultPromptStyle())
+        assertEquals("file", service.groupingMode())
+        assertFalse(service.shouldShowOnboarding())
+    }
+
+    @Test
     fun `connection profile state normalizes blank optional fields`() {
         val restored = ConnectionProfileState(
             id = "p1",

@@ -3,18 +3,7 @@ package com.sonarpromptstudio.service
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.sonarpromptstudio.model.ConnectionProfile
-import com.sonarpromptstudio.model.AuthMode
-import com.sonarpromptstudio.model.CoverageFinding
-import com.sonarpromptstudio.model.DiscoveredSonarProject
-import com.sonarpromptstudio.model.DuplicationFinding
-import com.sonarpromptstudio.model.FindingsSnapshot
-import com.sonarpromptstudio.model.HotspotFinding
-import com.sonarpromptstudio.model.IssueFinding
-import com.sonarpromptstudio.model.PromptStyle
-import com.sonarpromptstudio.model.PromptTarget
-import com.sonarpromptstudio.model.SonarProfileType
-import com.sonarpromptstudio.model.WorkspaceMode
+import com.sonarpromptstudio.model.*
 import com.sonarpromptstudio.state.SonarSettingsState
 import com.sonarpromptstudio.ui.SonarSettingsConfigurable
 import java.nio.file.Files
@@ -22,13 +11,7 @@ import java.nio.file.Path
 import javax.swing.JComboBox
 import javax.swing.JPasswordField
 import javax.swing.JTextField
-import kotlin.io.path.deleteExisting
 import kotlin.io.path.deleteIfExists
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class ServicesPlatformTest : BasePlatformTestCase() {
     private val settings: SonarSettingsService
