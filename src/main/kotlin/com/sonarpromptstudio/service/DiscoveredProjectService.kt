@@ -2,9 +2,8 @@ package com.sonarpromptstudio.service
 
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
-import com.intellij.platform.backend.workspace.WorkspaceModelTopics
-import com.intellij.platform.workspace.storage.VersionedStorageChange
+import com.intellij.openapi.roots.ModuleRootEvent
+import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.util.messages.MessageBusConnection
 import com.sonarpromptstudio.discovery.SonarProjectDiscovery
 import com.sonarpromptstudio.model.DiscoveredSonarProject
@@ -25,8 +24,8 @@ class DiscoveredProjectService @JvmOverloads constructor(
         rescan()
         if (project != null && subscribeToWorkspaceChanges) {
             connection = project.messageBus.connect().apply {
-                subscribe(WorkspaceModelTopics.CHANGED, object : WorkspaceModelChangeListener {
-                    override fun changed(event: VersionedStorageChange) {
+                subscribe(ModuleRootListener.TOPIC, object : ModuleRootListener {
+                    override fun rootsChanged(event: ModuleRootEvent) {
                         rescan()
                     }
                 })

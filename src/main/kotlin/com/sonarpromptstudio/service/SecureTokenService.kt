@@ -1,6 +1,7 @@
 package com.sonarpromptstudio.service
 
 import com.intellij.credentialStore.CredentialAttributes
+import com.intellij.credentialStore.generateServiceName
 import com.intellij.credentialStore.Credentials
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.application.ApplicationManager
@@ -30,9 +31,11 @@ class SecureTokenService(
     }
 
     private fun attributes(profileId: String): CredentialAttributes =
-        CredentialAttributes("Sonar Prompt Studio:$profileId")
+        CredentialAttributes(generateServiceName(SERVICE_NAME, profileId), profileId, javaClass)
 
     companion object {
+        private const val SERVICE_NAME = "Sonar Prompt Studio"
+
         fun getInstance(): SecureTokenService =
             ApplicationManager.getApplication().getService(SecureTokenService::class.java)
     }

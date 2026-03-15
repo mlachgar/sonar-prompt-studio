@@ -2,6 +2,7 @@ package com.sonarpromptstudio.service
 
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
@@ -21,7 +22,7 @@ class FindingsService @JvmOverloads constructor(
     private val discoveredProjects: DiscoveredProjectService? = project?.let { DiscoveredProjectService.getInstance(it) },
     private val workspaceState: WorkspaceStateService? = project?.let { WorkspaceStateService.getInstance(it) },
     private val notifier: (String, String) -> Unit = { title, content ->
-        if (project != null) {
+        if (project != null && ApplicationManager.getApplication() != null) {
             NotificationGroupManager.getInstance()
                 .getNotificationGroup("Sonar Prompt Studio")
                 .createNotification(title, content, NotificationType.ERROR)
@@ -47,17 +48,26 @@ class FindingsService @JvmOverloads constructor(
         val profile = activeProfile()
         val discoveredProject = discoveredProjects?.activeProject()
         if (profile == null || discoveredProject == null) {
-            onComplete?.invoke(Result.failure(IllegalStateException("Missing active profile or project.")))
-            return
-        }
-        val token = project?.let { tokens.loadToken(it, profile.id) }
-        if (token.isNullOrBlank()) {
-            onComplete?.invoke(Result.failure(IllegalStateException("No token available.")))
+            completeFailure(
+                onComplete = onComplete,
+                failure = IllegalStateException(MISSING_CONTEXT_MESSAGE),
+                onEdt = false,
+            )
             return
         }
 
         workspaceState?.loading = true
         if (backgroundRunner == null) {
+            val token = resolveToken(profile)
+            if (token.isNullOrBlank()) {
+                workspaceState?.loading = false
+                completeFailure(
+                    onComplete = onComplete,
+                    failure = IllegalStateException(MISSING_TOKEN_MESSAGE),
+                    onEdt = false,
+                )
+                return
+            }
             loadFindings(profile, token, discoveredProject, onComplete)
             return
         }
@@ -65,6 +75,16 @@ class FindingsService @JvmOverloads constructor(
         backgroundRunner.invoke(object : Task.Backgroundable(taskProject, "Loading Sonar findings", false) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
+                val token = resolveToken(profile)
+                if (token.isNullOrBlank()) {
+                    workspaceState?.loading = false
+                    completeFailure(
+                        onComplete = onComplete,
+                        failure = IllegalStateException(MISSING_TOKEN_MESSAGE),
+                        onEdt = true,
+                    )
+                    return
+                }
                 loadFindings(profile, token, discoveredProject, onComplete)
             }
         })
@@ -76,7 +96,13 @@ class FindingsService @JvmOverloads constructor(
     }
 
     private fun notifyError(title: String, content: String) {
-        notifier(title, content)
+        if (backgroundRunner == null) {
+            notifier(title, content)
+            return
+        }
+        invokeLaterIfAvailable {
+            notifier(title, content)
+        }
     }
 
     private fun loadFindings(
@@ -91,15 +117,57 @@ class FindingsService @JvmOverloads constructor(
             workspaceState?.lastSnapshot = snapshot
             workspaceState?.lastProfile = profile
             workspaceState?.loading = false
-            onComplete?.invoke(Result.success(snapshot))
+            complete(onComplete, Result.success(snapshot))
         } catch (t: Throwable) {
             workspaceState?.loading = false
-            notifyError("Failed to load findings", t.message ?: "Unknown error")
-            onComplete?.invoke(Result.failure(t))
+            completeFailure(onComplete, t, onEdt = backgroundRunner != null)
         }
     }
 
+    private fun resolveToken(profile: ConnectionProfile): String? = project?.let { tokens.loadToken(it, profile.id) }
+
+    private fun complete(onComplete: ((Result<FindingsSnapshot>) -> Unit)?, result: Result<FindingsSnapshot>) {
+        if (backgroundRunner == null) {
+            onComplete?.invoke(result)
+            return
+        }
+        completeOnEdt(onComplete, result)
+    }
+
+    private fun completeFailure(
+        onComplete: ((Result<FindingsSnapshot>) -> Unit)?,
+        failure: Throwable,
+        onEdt: Boolean,
+    ) {
+        notifyError(LOAD_FAILURE_TITLE, failure.message ?: UNKNOWN_ERROR_MESSAGE)
+        if (onEdt) {
+            completeOnEdt(onComplete, Result.failure(failure))
+        } else {
+            onComplete?.invoke(Result.failure(failure))
+        }
+    }
+
+    private fun completeOnEdt(onComplete: ((Result<FindingsSnapshot>) -> Unit)?, result: Result<FindingsSnapshot>) {
+        invokeLaterIfAvailable {
+            onComplete?.invoke(result)
+        }
+    }
+
+    private fun invokeLaterIfAvailable(action: () -> Unit) {
+        val application = ApplicationManager.getApplication()
+        if (application == null) {
+            action()
+            return
+        }
+        application.invokeLater(action)
+    }
+
     companion object {
+        private const val LOAD_FAILURE_TITLE = "Failed to load findings"
+        private const val UNKNOWN_ERROR_MESSAGE = "Unknown error"
+        private const val MISSING_CONTEXT_MESSAGE = "Missing active profile or project."
+        private const val MISSING_TOKEN_MESSAGE = "No token available."
+
         fun getInstance(project: Project): FindingsService = project.service()
     }
 }

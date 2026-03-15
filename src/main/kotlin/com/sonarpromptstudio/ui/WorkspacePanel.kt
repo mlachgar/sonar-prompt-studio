@@ -84,6 +84,9 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
         background = JBColor(Color(0xFAFAFC), Color(0x25272B))
         border = JBUI.Borders.empty(12)
     }
+    private val generatePromptButton = actionButton("Generate Prompt") { generatePrompt() }.apply {
+        isEnabled = false
+    }
     private val targetSelector = JComboBox(PromptTarget.entries.toTypedArray())
     private val styleSelector = JComboBox(PromptStyle.entries.toTypedArray())
 
@@ -244,7 +247,7 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
                         targetSelector,
                         JBLabel("Style"),
                         styleSelector,
-                        actionButton("Generate Prompt") { generatePrompt() },
+                        generatePromptButton,
                     ),
                     BorderLayout.SOUTH,
                 )
@@ -439,6 +442,7 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
 
     private fun generatePrompt() {
         syncSelectionsFromTables()
+        if (!hasSelection()) return
         val generated = PromptBuilder.build(
             PromptInput(
                 target = state.currentPromptTarget,
@@ -679,6 +683,7 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
             "<html>Selected findings&nbsp;&nbsp;<span style='color:#AFC3D6; font-size: 108%;'><b>$totalSelected</b></span>&nbsp;&nbsp;&nbsp;&nbsp;$summaryParts</html>"
         }
         selectionSummaryLabel.isVisible = totalSelected > 0
+        generatePromptButton.isEnabled = totalSelected > 0
     }
 
     private fun updatePromptDirtyMarker() {
@@ -715,6 +720,9 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
         discovered.activeProject() == null -> "<html><div style='text-align:center;'>Select a detected Sonar project to load findings.</div></html>"
         else -> "<html><div style='text-align:center;'>No findings to display.</div></html>"
     }
+
+    private fun hasSelection(): Boolean =
+        state.selections.values.any { it.selectedKeys.isNotEmpty() }
 
     private fun connectionMetadata(profile: ConnectionProfile?): String =
         profile?.let { "${it.name} (${it.type.name.lowercase()} @ ${it.baseUrl}) project=${discovered.activeProject()?.sonarProjectKey ?: "n/a"}" }

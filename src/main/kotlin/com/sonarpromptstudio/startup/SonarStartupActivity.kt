@@ -7,7 +7,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.startup.StartupActivity
-import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.util.Key
 import com.sonarpromptstudio.model.AuthMode
 import com.sonarpromptstudio.model.ConnectionProfile
@@ -40,20 +39,18 @@ private object SonarStartupRunner {
 
         val settings = SonarSettingsService.getInstance()
         val findings = FindingsService.getInstance(project)
-        val tokenService = SecureTokenService.getInstance()
-
         DiscoveredProjectService.getInstance(project).rescan()
         showOnboardingIfNeeded(project, settings)
 
         val activeProfile = findings.activeProfile()
-        if (activeProfile != null && !tokenService.loadToken(project, activeProfile.id).isNullOrBlank()) {
+        if (activeProfile != null) {
             findings.refresh { UiRefreshService.getInstance(project).fire() }
         } else {
             runSonarCloudAutoDetection(project)
         }
 
-        StartupManager.getInstance(project).runAfterOpened {
-            ApplicationManager.getApplication().invokeLater {
+        ApplicationManager.getApplication().invokeLater {
+            if (!project.isDisposed) {
                 runSonarCloudAutoDetection(project)
             }
         }

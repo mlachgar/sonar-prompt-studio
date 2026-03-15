@@ -1,5 +1,6 @@
 package com.sonarpromptstudio.service
 
+import com.intellij.credentialStore.generateServiceName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
@@ -206,7 +207,7 @@ class ServiceUnitTest {
 
     @Test
     fun `secure token service treats blank stored token as missing and delegates to env reader`() {
-        val store = mutableMapOf<String, String?>("Sonar Prompt Studio:p1" to "   ")
+        val store = mutableMapOf<String, String?>(generateServiceName("Sonar Prompt Studio", "p1") to "   ")
         var envProject: Project? = null
         val tokens = SecureTokenService(
             tokenStore = object : TokenStore {
@@ -247,10 +248,10 @@ class ServiceUnitTest {
         tokens.saveToken("p1", "secure-token")
         tokens.removeToken("p1")
 
-        assertEquals("Sonar Prompt Studio:p1", writes[0].first.serviceName)
+        assertEquals(generateServiceName("Sonar Prompt Studio", "p1"), writes[0].first.serviceName)
         assertEquals("p1", writes[0].second?.userName)
         assertEquals("secure-token", writes[0].second?.getPasswordAsString())
-        assertEquals("Sonar Prompt Studio:p1", writes[1].first.serviceName)
+        assertEquals(generateServiceName("Sonar Prompt Studio", "p1"), writes[1].first.serviceName)
         assertNull(writes[1].second)
     }
 
@@ -854,7 +855,7 @@ class ServiceUnitTest {
 
         assertTrue(diagnostics.success)
         assertEquals("stored-token", diagnostics.summary)
-        assertEquals("Sonar Prompt Studio:p1", loadedProfileId)
+        assertEquals(generateServiceName("Sonar Prompt Studio", "p1"), loadedProfileId)
     }
 
     @Test
