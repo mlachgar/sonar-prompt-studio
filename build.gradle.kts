@@ -64,6 +64,17 @@ intellijPlatform {
             sinceBuild = "242"
             untilBuild = provider { null }
         }
+        changeNotes = provider {
+            """
+            <p>Initial public release of Sonar Prompt Studio.</p>
+            <ul>
+              <li>Connect to SonarQube Cloud and self-hosted SonarQube Server</li>
+              <li>Review findings inside IntelliJ IDEA</li>
+              <li>Generate remediation prompts for Codex, Claude Code, and Qwen Code</li>
+              <li>Discover Sonar project settings from common repository files</li>
+            </ul>
+            """.trimIndent()
+        }
     }
 }
 

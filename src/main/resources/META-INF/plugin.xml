@@ -1,9 +1,27 @@
 <idea-plugin>
     <id>com.sonarpromptstudio.intellij</id>
     <name>Sonar Prompt Studio</name>
-    <vendor email="support@example.com" url="https://example.com">Sonar Prompt Studio</vendor>
+    <vendor email="mohamed.lachgar@gmail.com" url="https://github.com/mlachgar">Mohamed LACHGAR</vendor>
     <description><![CDATA[
-        Native IntelliJ IDEA plugin for SonarQube Cloud and SonarQube Server findings review and prompt generation.
+        <p>Sonar Prompt Studio brings SonarQube findings review and remediation prompt generation directly into IntelliJ IDEA.</p>
+
+        <p>Use it to connect to SonarQube Cloud or a self-hosted SonarQube Server instance, inspect issues in the IDE, and generate remediation prompts tailored for coding assistants such as Codex, Claude Code, and Qwen Code.</p>
+
+        <h3>Features</h3>
+        <ul>
+            <li>Connect to SonarQube Cloud and SonarQube Server with reusable profiles</li>
+            <li>Discover Sonar project settings from common repository files</li>
+            <li>Review findings inside IntelliJ IDEA</li>
+            <li>Generate and copy remediation prompts for supported coding assistants</li>
+            <li>Refresh findings and manage plugin state from the Tools menu</li>
+        </ul>
+
+        <h3>Getting Started</h3>
+        <ol>
+            <li>Open <b>Settings | Tools | Sonar Prompt Studio</b> and configure a connection profile.</li>
+            <li>Open your project and let the plugin discover the Sonar project configuration.</li>
+            <li>Open the <b>Sonar Prompt Studio</b> tool window to review findings and generate prompts.</li>
+        </ol>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
