@@ -4,6 +4,7 @@ import com.intellij.credentialStore.generateServiceName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.roots.ModuleRootListener
 import com.sonarpromptstudio.backend.SonarBackend
 import com.sonarpromptstudio.model.AuthMode
 import com.sonarpromptstudio.model.ConnectionDiagnostics
@@ -18,6 +19,8 @@ import com.sonarpromptstudio.model.PromptStyle
 import com.sonarpromptstudio.model.PromptTarget
 import com.sonarpromptstudio.model.SonarProfileType
 import com.sonarpromptstudio.model.WorkspaceMode
+import com.intellij.util.messages.MessageBus
+import com.intellij.util.messages.MessageBusConnection
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import kotlin.io.path.createTempDirectory
@@ -375,6 +378,86 @@ class ServiceUnitTest {
         assertTrue(service.allProjects().isEmpty())
         assertNull(settings.activeProjectPath())
         assertNull(service.activeProject())
+    }
+
+    @Test
+    fun `discovered project service rescans when workspace roots change`() {
+        val settings = SonarSettingsService()
+        var listener: ModuleRootListener? = null
+        var scans = 0
+        val connection = Proxy.newProxyInstance(
+            javaClass.classLoader,
+            arrayOf(MessageBusConnection::class.java),
+        ) { _, method, args ->
+            when (method.name) {
+                "subscribe" -> {
+                    listener = args?.get(1) as ModuleRootListener
+                    null
+                }
+                "disconnect" -> null
+                else -> when (method.returnType) {
+                    java.lang.Boolean.TYPE -> false
+                    java.lang.Integer.TYPE -> 0
+                    java.lang.Long.TYPE -> 0L
+                    else -> null
+                }
+            }
+        } as MessageBusConnection
+        val messageBus = Proxy.newProxyInstance(
+            javaClass.classLoader,
+            arrayOf(MessageBus::class.java),
+        ) { _, method, _ ->
+            when (method.name) {
+                "connect" -> connection
+                else -> when (method.returnType) {
+                    java.lang.Boolean.TYPE -> false
+                    java.lang.Integer.TYPE -> 0
+                    java.lang.Long.TYPE -> 0L
+                    else -> null
+                }
+            }
+        } as MessageBus
+        val project = Proxy.newProxyInstance(
+            javaClass.classLoader,
+            arrayOf(Project::class.java),
+        ) { _, method, _ ->
+            when (method.name) {
+                "getBasePath" -> "/tmp/workspace"
+                "getMessageBus" -> messageBus
+                else -> when (method.returnType) {
+                    java.lang.Boolean.TYPE -> false
+                    java.lang.Integer.TYPE -> 0
+                    java.lang.Long.TYPE -> 0L
+                    java.lang.Double.TYPE -> 0.0
+                    java.lang.Float.TYPE -> 0f
+                    java.lang.Short.TYPE -> 0.toShort()
+                    java.lang.Byte.TYPE -> 0.toByte()
+                    java.lang.Character.TYPE -> 0.toChar()
+                    String::class.java -> ""
+                    else -> null
+                }
+            }
+        } as Project
+        val service = DiscoveredProjectService(
+            project = project,
+            settings = settings,
+            discoverProjects = {
+                scans += 1
+                listOf(DiscoveredSonarProject("/tmp/workspace", "demo-$scans", null))
+            },
+        )
+
+        assertEquals(1, scans)
+        assertEquals("demo-1", service.activeProject()?.sonarProjectKey)
+
+        listener!!.rootsChanged(object : com.intellij.openapi.roots.ModuleRootEvent(project) {
+            override fun isCausedByFileTypesChange(): Boolean = false
+
+            override fun isCausedByWorkspaceModelChangesOnly(): Boolean = false
+        })
+
+        assertEquals(2, scans)
+        assertEquals("demo-2", service.activeProject()?.sonarProjectKey)
     }
 
     @Test
@@ -1127,6 +1210,89 @@ class ServiceUnitTest {
         assertTrue(result!!.isSuccess)
         assertFalse(workspace.loading)
         assertEquals(1, findings.latestSnapshot().coverage.size)
+    }
+
+    @Test
+    fun `findings service reports missing token from background runner`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        val settings = SonarSettingsService().apply {
+            saveProfiles(listOf(profile))
+            setActiveProfileId("p1")
+        }
+        val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
+        val taskHolder = mutableListOf<Task.Backgroundable>()
+        val notifications = mutableListOf<Pair<String, String>>()
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = error("unused")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot = error("should not load findings")
+            },
+            settings = settings,
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = null
+                    override fun set(attributes: com.intellij.credentialStore.CredentialAttributes, credentials: com.intellij.credentialStore.Credentials?) = Unit
+                },
+                envTokenReader = { "   " },
+            ),
+            discoveredProjects = DiscoveredProjectService(
+                project = null,
+                settings = settings,
+                basePathOverride = "/tmp",
+                discoverProjects = { listOf(DiscoveredSonarProject("/tmp", "demo-key", null)) },
+                subscribeToWorkspaceChanges = false,
+            ),
+            workspaceState = workspace,
+            notifier = { title, content -> notifications += title to content },
+            backgroundRunner = { taskHolder += it },
+        )
+        var result: Result<FindingsSnapshot>? = null
+
+        findings.refresh { result = it }
+
+        assertTrue(workspace.loading)
+        assertEquals(1, taskHolder.size)
+
+        val indicator = Proxy.newProxyInstance(
+            javaClass.classLoader,
+            arrayOf(ProgressIndicator::class.java),
+        ) { _, method, _ ->
+            when (method.returnType) {
+                java.lang.Boolean.TYPE -> false
+                java.lang.Integer.TYPE -> 0
+                java.lang.Long.TYPE -> 0L
+                java.lang.Double.TYPE -> 0.0
+                java.lang.Float.TYPE -> 0f
+                java.lang.Short.TYPE -> 0.toShort()
+                java.lang.Byte.TYPE -> 0.toByte()
+                java.lang.Character.TYPE -> 0.toChar()
+                else -> null
+            }
+        } as ProgressIndicator
+
+        taskHolder.single().run(indicator)
+
+        assertFalse(workspace.loading)
+        assertNotNull(result)
+        assertTrue(result!!.isFailure)
+        assertEquals("No token available.", result!!.exceptionOrNull()?.message)
+        assertEquals(listOf("Failed to load findings" to "No token available."), notifications)
     }
 
     @Test
