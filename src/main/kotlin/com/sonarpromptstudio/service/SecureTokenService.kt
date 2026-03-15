@@ -33,7 +33,7 @@ class SecureTokenService(
     private fun attributes(profileId: String): CredentialAttributes =
         CredentialAttributes(
             serviceName = generateServiceName(SERVICE_NAME, profileId),
-            userName = profileId,
+            userName = profileId
         )
 
     companion object {
