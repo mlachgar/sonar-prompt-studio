@@ -2,14 +2,17 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.math.BigDecimal
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 val kotlinxSerializationVersion = "1.6.3"
+val junit4Version = "4.13.2"
 val junitJupiterVersion = "5.10.2"
+val junitPlatformVersion = "1.10.2"
 
 plugins {
     kotlin("jvm") version "1.9.24"
     kotlin("plugin.serialization") version "1.9.24"
-    id("org.jetbrains.intellij") version "1.17.4"
+    id("org.jetbrains.intellij.platform") version "2.13.0"
     id("org.sonarqube") version "7.2.3.7755"
     jacoco
 }
@@ -19,18 +22,22 @@ version = "1.0.0"
 
 repositories {
     mavenCentral()
+    intellijPlatform {
+        defaultRepositories()
+    }
 }
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion")
+    testImplementation("junit:junit:$junit4Version")
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:$junitJupiterVersion")
-}
-
-intellij {
-    version.set(providers.gradleProperty("intellijVersion"))
-    type.set("IC")
-    plugins.set(listOf("com.intellij.java"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:$junitPlatformVersion")
+    intellijPlatform {
+        intellijIdeaCommunity(providers.gradleProperty("intellijVersion"))
+        bundledPlugin("com.intellij.java")
+        testFramework(TestFrameworkType.Platform)
+    }
 }
 
 sonar {
@@ -50,6 +57,16 @@ sonar {
     }
 }
 
+intellijPlatform {
+    buildSearchableOptions = false
+    pluginConfiguration {
+        ideaVersion {
+            sinceBuild = "242"
+            untilBuild = provider { null }
+        }
+    }
+}
+
 tasks {
     val coveredClasses = fileTree(layout.buildDirectory.dir("instrumented/instrumentCode")) {
         exclude(
@@ -60,18 +77,13 @@ tasks {
         )
     }
 
-    patchPluginXml {
-        sinceBuild.set("241")
-        untilBuild.set("")
-    }
-
     withType<JavaCompile> {
-        sourceCompatibility = "17"
-        targetCompatibility = "17"
+        sourceCompatibility = "21"
+        targetCompatibility = "21"
     }
 
     withType<KotlinCompile> {
-        compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 
     withType<Test> {
@@ -106,10 +118,6 @@ tasks {
             }
         }
         classDirectories.setFrom(coveredClasses)
-    }
-
-    named("buildSearchableOptions") {
-        enabled = false
     }
 
     named("check") {
