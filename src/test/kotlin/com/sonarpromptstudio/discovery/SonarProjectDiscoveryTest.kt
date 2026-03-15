@@ -43,4 +43,57 @@ class SonarProjectDiscoveryTest {
         assertEquals(listOf("a-key", "b-key"), discovered.map { it.sonarProjectKey })
         assertTrue(discovered.none { it.sonarProjectKey == "ignored" })
     }
+
+    @Test
+    fun `discovers sonar properties from gradle builds in root and first-level modules`() {
+        val root = createTempDirectory("sonar-discovery-gradle")
+        root.resolve("build.gradle.kts").writeText(
+            """
+            sonar {
+                properties {
+                    property("sonar.projectKey", "root-key")
+                    property("sonar.organization", "root-org")
+                }
+            }
+            """.trimIndent(),
+        )
+        val child = root.resolve("module").createDirectories()
+        child.resolve("build.gradle").writeText(
+            """
+            sonar {
+                properties {
+                    property 'sonar.projectKey', 'child-key'
+                }
+            }
+            """.trimIndent(),
+        )
+
+        val discovered = SonarProjectDiscovery.discover(root)
+
+        assertEquals(2, discovered.size)
+        assertEquals(setOf("child-key", "root-key"), discovered.map { it.sonarProjectKey }.toSet())
+        assertEquals("root-org", discovered.single { it.sonarProjectKey == "root-key" }.sonarOrganization)
+    }
+
+    @Test
+    fun `prefers sonar-project properties over gradle in the same directory`() {
+        val root = createTempDirectory("sonar-discovery-priority")
+        root.resolve("sonar-project.properties").writeText("sonar.projectKey=properties-key\nsonar.organization=properties-org\n")
+        root.resolve("build.gradle.kts").writeText(
+            """
+            sonar {
+                properties {
+                    property("sonar.projectKey", "gradle-key")
+                    property("sonar.organization", "gradle-org")
+                }
+            }
+            """.trimIndent(),
+        )
+
+        val discovered = SonarProjectDiscovery.discover(root)
+
+        assertEquals(1, discovered.size)
+        assertEquals("properties-key", discovered.single().sonarProjectKey)
+        assertEquals("properties-org", discovered.single().sonarOrganization)
+    }
 }

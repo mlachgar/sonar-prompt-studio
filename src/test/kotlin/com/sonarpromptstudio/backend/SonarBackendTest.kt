@@ -77,11 +77,19 @@ class SonarBackendTest {
     }
 
     @Test
-    fun `reports missing project key when project metadata is unavailable`() {
-        val diagnostics = backend.testConnection(serverProfile("http://localhost"), "token", null)
+    fun `reports connection success when project metadata is unavailable`() {
+        startServer { exchange ->
+            when (exchange.requestURI.path) {
+                "/api/authentication/validate" -> exchange.respond("""{"valid":true}""")
+                else -> exchange.respond("""{}""")
+            }
+        }
 
-        assertFalse(diagnostics.success)
-        assertEquals("Missing sonar.projectKey", diagnostics.summary)
+        val diagnostics = backend.testConnection(serverProfile(serverBaseUrl()), "token", null)
+
+        assertTrue(diagnostics.success)
+        assertEquals("Connection successful", diagnostics.summary)
+        assertContains(diagnostics.details.single(), "Project validation was skipped")
     }
 
     @Test

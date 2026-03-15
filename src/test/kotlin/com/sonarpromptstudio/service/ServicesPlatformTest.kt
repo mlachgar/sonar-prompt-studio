@@ -222,8 +222,8 @@ class ServicesPlatformTest : BasePlatformTestCase() {
         assertEquals(profile, findings.activeProfile())
 
         val diagnostics = findings.testConnection(profile, null, tokenOverride = "token")
-        assertFalse(diagnostics.success)
-        assertEquals("Missing sonar.projectKey", diagnostics.summary)
+        assertTrue(diagnostics.success)
+        assertEquals("Connection successful", diagnostics.summary)
 
         var result: Result<FindingsSnapshot>? = null
         findings.refresh { result = it }

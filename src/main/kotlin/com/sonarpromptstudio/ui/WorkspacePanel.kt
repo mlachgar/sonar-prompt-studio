@@ -29,6 +29,7 @@ import com.sonarpromptstudio.service.SelectionAndFilterLogic
 import com.sonarpromptstudio.service.SonarSettingsService
 import com.sonarpromptstudio.service.UiRefreshService
 import com.sonarpromptstudio.service.WorkspaceStateService
+import java.awt.CardLayout
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
@@ -66,6 +67,12 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
     private val projectSelector = JComboBox<ProjectOption>()
     private val loadingLabel = JBLabel("Ready")
     private val selectionSummaryLabel = JBLabel("")
+    private val emptyStateLabel = JBLabel("", SwingConstants.CENTER).apply {
+        foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+        verticalAlignment = SwingConstants.CENTER
+    }
+    private val selectionContentLayout = CardLayout()
+    private val selectionContent = JBPanel<JBPanel<*>>(selectionContentLayout)
     private val promptDirtyIconLabel = JBLabel(AllIcons.General.Warning).apply {
         toolTipText = "Prompt out of date. Re-generate to reflect the latest selection or findings."
         isVisible = false
@@ -171,7 +178,14 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
             },
             BorderLayout.NORTH,
         )
-        add(buildModesPanel(), BorderLayout.CENTER)
+        selectionContent.add(buildEmptyStatePanel(), "empty")
+        selectionContent.add(buildModesPanel(), "data")
+        add(selectionContent, BorderLayout.CENTER)
+    }
+
+    private fun buildEmptyStatePanel(): JPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+        isOpaque = false
+        add(emptyStateLabel, BorderLayout.CENTER)
     }
 
     private fun buildModesPanel(): JPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
@@ -261,12 +275,13 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
         val snapshot = findings.latestSnapshot()
         state.lastSnapshot = snapshot
         state.markPromptDirtyIfNeeded()
-        loadingLabel.text = if (state.loading) "Loading..." else if (findings.activeProfile() == null || discovered.activeProject() == null) "Configure a profile and project" else "Ready"
+        loadingLabel.text = loadingStatusText(discoveredProjects.isEmpty())
         updateTabTitles(snapshot)
         reloadIssues()
         reloadCoverage(snapshot.coverage)
         reloadDuplication(snapshot.duplication)
         reloadHotspots(snapshot.hotspots)
+        updateSelectionContentState(discoveredProjects.isEmpty(), snapshot)
         updateSelectionSummary()
         updatePromptDirtyMarker()
     }
@@ -668,6 +683,37 @@ class WorkspacePanel(private val project: Project) : JBPanel<WorkspacePanel>(Bor
 
     private fun updatePromptDirtyMarker() {
         promptDirtyIconLabel.isVisible = state.promptDirty
+    }
+
+    private fun updateSelectionContentState(noDiscoveredProjects: Boolean, snapshot: com.sonarpromptstudio.model.FindingsSnapshot) {
+        val hasData = snapshot.issues.isNotEmpty() ||
+            snapshot.coverage.isNotEmpty() ||
+            snapshot.duplication.isNotEmpty() ||
+            snapshot.hotspots.isNotEmpty()
+
+        if (hasData) {
+            selectionContentLayout.show(selectionContent, "data")
+            return
+        }
+
+        emptyStateLabel.text = emptyStateMessage(noDiscoveredProjects)
+        selectionContentLayout.show(selectionContent, "empty")
+    }
+
+    private fun loadingStatusText(noDiscoveredProjects: Boolean): String = when {
+        state.loading -> "Loading..."
+        findings.activeProfile() == null -> "Configure a profile"
+        noDiscoveredProjects -> "Add sonar-project.properties"
+        discovered.activeProject() == null -> "Select a project"
+        else -> "Ready"
+    }
+
+    private fun emptyStateMessage(noDiscoveredProjects: Boolean): String = when {
+        state.loading -> "<html><div style='text-align:center;'>Loading Sonar findings...</div></html>"
+        findings.activeProfile() == null -> "<html><div style='text-align:center;'>Configure a Sonar profile to load findings.</div></html>"
+        noDiscoveredProjects -> "<html><div style='text-align:center;'>No Sonar project detected.<br/>Create <code>sonar-project.properties</code> in the project root.</div></html>"
+        discovered.activeProject() == null -> "<html><div style='text-align:center;'>Select a detected Sonar project to load findings.</div></html>"
+        else -> "<html><div style='text-align:center;'>No findings to display.</div></html>"
     }
 
     private fun connectionMetadata(profile: ConnectionProfile?): String =

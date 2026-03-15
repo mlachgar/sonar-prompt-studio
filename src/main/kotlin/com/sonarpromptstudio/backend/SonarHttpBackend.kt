@@ -51,10 +51,7 @@ class SonarHttpBackend : SonarBackend {
         if (token.isNullOrBlank()) {
             return ConnectionDiagnostics(false, "Authentication failure", listOf("No token is available. Save one securely or set SONAR_TOKEN in .env."))
         }
-        if (project == null) {
-            return ConnectionDiagnostics(false, "Missing sonar.projectKey", listOf("No supported sonar-project.properties file was discovered in the repository root or one level below it."))
-        }
-        if (profile.type == SonarProfileType.CLOUD && project.sonarOrganization.isNullOrBlank()) {
+        if (project != null && profile.type == SonarProfileType.CLOUD && project.sonarOrganization.isNullOrBlank()) {
             return ConnectionDiagnostics(false, "Invalid SonarCloud organization", listOf("sonar.organization is required for SonarQube Cloud projects."))
         }
 
@@ -66,9 +63,15 @@ class SonarHttpBackend : SonarBackend {
                 }
             }
 
-            val projectQuery = linkedMapOf(
-                "projects" to project.sonarProjectKey,
-            )
+            if (project == null) {
+                return ConnectionDiagnostics(
+                    true,
+                    "Connection successful",
+                    listOf("Authenticated successfully. Project validation was skipped because no Sonar project was detected."),
+                )
+            }
+
+            val projectQuery = linkedMapOf("projects" to project.sonarProjectKey)
             if (profile.type == SonarProfileType.CLOUD) {
                 projectQuery["organization"] = project.sonarOrganization ?: ""
             }
