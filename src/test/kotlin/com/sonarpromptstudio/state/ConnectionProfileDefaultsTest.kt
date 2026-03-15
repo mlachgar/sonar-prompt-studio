@@ -7,6 +7,18 @@ import kotlin.test.assertEquals
 
 class ConnectionProfileDefaultsTest {
     @Test
+    fun `keeps explicit base url when cloud profile url is provided`() {
+        val profile = ConnectionProfile(
+            id = "1",
+            name = "SonarCloud",
+            type = SonarProfileType.CLOUD,
+            baseUrl = "https://example.sonarcloud.test",
+        )
+
+        assertEquals("https://example.sonarcloud.test", profile.effectiveBaseUrl())
+    }
+
+    @Test
     fun `uses sonarcloud default url when cloud base url is blank`() {
         val profile = ConnectionProfile(
             id = "1",

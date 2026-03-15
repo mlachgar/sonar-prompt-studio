@@ -88,6 +88,7 @@ class ServiceUnitTest {
         assertNull(settings.pendingProfileDraft())
     }
 
+    @Test
     fun `ui refresh service fires listeners and supports unsubscribe`() {
         val refresh = UiRefreshService()
         var count = 0
