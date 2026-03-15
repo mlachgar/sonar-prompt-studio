@@ -227,6 +227,33 @@ class ServiceUnitTest {
     }
 
     @Test
+    fun `secure token service saves and removes credentials for the expected attribute key`() {
+        val writes = mutableListOf<Pair<com.intellij.credentialStore.CredentialAttributes, com.intellij.credentialStore.Credentials?>>()
+        val tokens = SecureTokenService(
+            tokenStore = object : TokenStore {
+                override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = null
+
+                override fun set(
+                    attributes: com.intellij.credentialStore.CredentialAttributes,
+                    credentials: com.intellij.credentialStore.Credentials?,
+                ) {
+                    writes += attributes to credentials
+                }
+            },
+            envTokenReader = { null },
+        )
+
+        tokens.saveToken("p1", "secure-token")
+        tokens.removeToken("p1")
+
+        assertEquals("Sonar Prompt Studio:p1", writes[0].first.serviceName)
+        assertEquals("p1", writes[0].second?.userName)
+        assertEquals("secure-token", writes[0].second?.getPasswordAsString())
+        assertEquals("Sonar Prompt Studio:p1", writes[1].first.serviceName)
+        assertNull(writes[1].second)
+    }
+
+    @Test
     fun `discovered project service rescans and maintains active project`() {
         val settings = SonarSettingsService()
         val tempDir = createTempDirectory()
@@ -280,6 +307,37 @@ class ServiceUnitTest {
 
         service.setActiveProject("/tmp/other")
         assertEquals("/tmp/other", settings.activeProjectPath())
+    }
+
+    @Test
+    fun `discovered project service preserves matching active project and clears missing one when nothing is found`() {
+        val settings = SonarSettingsService().apply {
+            setActiveProjectPath("/tmp/two")
+        }
+        val projects = listOf(
+            DiscoveredSonarProject("/tmp/one", "one", null),
+            DiscoveredSonarProject("/tmp/two", "two", null),
+        )
+        var discoverCalls = 0
+        val service = DiscoveredProjectService(
+            project = null,
+            settings = settings,
+            basePathOverride = "/tmp",
+            discoverProjects = {
+                discoverCalls += 1
+                if (discoverCalls == 1) projects else emptyList()
+            },
+            subscribeToWorkspaceChanges = false,
+        )
+
+        assertEquals("/tmp/two", service.activeProject()?.path)
+        assertEquals("/tmp/two", settings.activeProjectPath())
+
+        val rescanned = service.rescan()
+        assertTrue(rescanned.isEmpty())
+        assertTrue(service.allProjects().isEmpty())
+        assertNull(service.activeProject())
+        assertNull(settings.activeProjectPath())
     }
 
     @Test
@@ -348,6 +406,56 @@ class ServiceUnitTest {
         assertTrue(findings.latestSnapshot().issues.isEmpty())
         assertTrue(workspace.lastGeneratedPrompt.isBlank())
         assertTrue(notifications.isEmpty())
+    }
+
+    @Test
+    fun `findings service uses stored token when no override is provided`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        var loadedProfileId: String? = null
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = ConnectionDiagnostics(token == "stored-token", token ?: "missing")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot = error("unused")
+            },
+            settings = SonarSettingsService(),
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? {
+                        loadedProfileId = attributes.serviceName
+                        return "stored-token"
+                    }
+
+                    override fun set(attributes: com.intellij.credentialStore.CredentialAttributes, credentials: com.intellij.credentialStore.Credentials?) = Unit
+                },
+                envTokenReader = { null },
+            ),
+            discoveredProjects = null,
+            workspaceState = null,
+            notifier = { _, _ -> error("unused") },
+            backgroundRunner = null,
+        )
+
+        val diagnostics = findings.testConnection(profile, null)
+
+        assertTrue(diagnostics.success)
+        assertEquals("stored-token", diagnostics.summary)
+        assertEquals("Sonar Prompt Studio:p1", loadedProfileId)
     }
 
     @Test
@@ -439,6 +547,56 @@ class ServiceUnitTest {
         assertEquals("No token available.", result!!.exceptionOrNull()?.message)
 
         assertEquals("unused", noTokenFindings.testConnection(profile, discoveredWithProject.activeProject(), null).summary)
+    }
+
+    @Test
+    fun `findings service refresh succeeds without callback and clears loading state`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        val settings = SonarSettingsService().apply {
+            saveProfiles(listOf(profile))
+            setActiveProfileId("p1")
+        }
+        val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(profile: ConnectionProfile, token: String?, project: DiscoveredSonarProject?): ConnectionDiagnostics =
+                    ConnectionDiagnostics(true, "unused")
+
+                override fun loadFindings(profile: ConnectionProfile, token: String, project: DiscoveredSonarProject): FindingsSnapshot =
+                    FindingsSnapshot(hotspots = listOf(HotspotFinding("H-1", "src/Test.kt", 3, "TO_REVIEW", "MEDIUM", "msg")))
+            },
+            settings = settings,
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = "stored-token"
+                    override fun set(attributes: com.intellij.credentialStore.CredentialAttributes, credentials: com.intellij.credentialStore.Credentials?) = Unit
+                },
+                envTokenReader = { null },
+            ),
+            discoveredProjects = DiscoveredProjectService(
+                project = null,
+                settings = settings,
+                basePathOverride = "/tmp",
+                discoverProjects = { listOf(DiscoveredSonarProject("/tmp", "demo-key", null)) },
+                subscribeToWorkspaceChanges = false,
+            ),
+            workspaceState = workspace,
+            notifier = { _, _ -> error("should not notify") },
+            backgroundRunner = null,
+        )
+
+        findings.refresh()
+
+        assertFalse(workspace.loading)
+        assertEquals(1, findings.latestSnapshot().hotspots.size)
+        assertEquals(profile, workspace.lastProfile)
     }
 
     @Test
@@ -642,5 +800,19 @@ class ServiceUnitTest {
         assertNotNull(result)
         assertTrue(result!!.isFailure)
         assertEquals(listOf("Failed to load findings" to "Unknown error"), notifications)
+    }
+
+    @Test
+    fun `workspace state service does not mark prompt dirty when selection signature is unchanged`() {
+        val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
+        workspace.setSelection(WorkspaceMode.ISSUES, listOf("I-2", "I-1"))
+        workspace.lastGeneratedPrompt = "prompt"
+        workspace.markPromptGenerated()
+
+        workspace.setSelection(WorkspaceMode.ISSUES, listOf("I-1", "I-2"))
+        workspace.markPromptDirtyIfNeeded()
+
+        assertFalse(workspace.promptDirty)
+        assertEquals("ISSUES:I-1,I-2|COVERAGE:|DUPLICATION:|HOTSPOTS:", workspace.promptSelectionSignature)
     }
 }
