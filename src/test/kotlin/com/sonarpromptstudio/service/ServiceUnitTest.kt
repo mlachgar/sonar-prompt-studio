@@ -22,6 +22,7 @@ import java.nio.file.Files
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.writeText
+import kotlin.test.assertFailsWith
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -87,7 +88,6 @@ class ServiceUnitTest {
         assertNull(settings.pendingProfileDraft())
     }
 
-    @Test
     fun `ui refresh service fires listeners and supports unsubscribe`() {
         val refresh = UiRefreshService()
         var count = 0
@@ -338,6 +338,289 @@ class ServiceUnitTest {
         assertTrue(service.allProjects().isEmpty())
         assertNull(service.activeProject())
         assertNull(settings.activeProjectPath())
+    }
+
+    @Test
+    fun `discovered project service falls back to first project when active path is unknown`() {
+        val settings = SonarSettingsService().apply {
+            setActiveProjectPath("/tmp/missing")
+        }
+        val first = DiscoveredSonarProject("/tmp/one", "one", null)
+        val second = DiscoveredSonarProject("/tmp/two", "two", null)
+        val service = DiscoveredProjectService(
+            project = null,
+            settings = settings,
+            basePathOverride = "/tmp",
+            discoverProjects = { listOf(first, second) },
+            subscribeToWorkspaceChanges = false,
+        )
+
+        assertEquals("/tmp/one", settings.activeProjectPath())
+        assertEquals(first, service.activeProject())
+    }
+
+    @Test
+    fun `workspace state does not mark prompt dirty when selection signature is unchanged`() {
+        val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
+
+        workspace.setSelection(WorkspaceMode.ISSUES, listOf("I-1"))
+        workspace.lastGeneratedPrompt = "prompt"
+        workspace.markPromptGenerated()
+        workspace.markPromptDirtyIfNeeded()
+
+        assertFalse(workspace.promptDirty)
+        assertEquals("ISSUES:I-1|COVERAGE:|DUPLICATION:|HOTSPOTS:", workspace.promptSelectionSignature)
+    }
+
+    @Test
+    fun `findings service uses secure store token when no override is provided`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        var recordedToken: String? = null
+        var recordedProject: DiscoveredSonarProject? = null
+        val backend = object : SonarBackend {
+            override fun testConnection(
+                profile: ConnectionProfile,
+                token: String?,
+                project: DiscoveredSonarProject?,
+            ): ConnectionDiagnostics {
+                recordedToken = token
+                recordedProject = project
+                return ConnectionDiagnostics(true, "ok")
+            }
+
+            override fun loadFindings(
+                profile: ConnectionProfile,
+                token: String,
+                project: DiscoveredSonarProject,
+            ): FindingsSnapshot = error("not used")
+        }
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = backend,
+            settings = SonarSettingsService(),
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = null
+                    override fun set(
+                        attributes: com.intellij.credentialStore.CredentialAttributes,
+                        credentials: com.intellij.credentialStore.Credentials?,
+                    ) = Unit
+                },
+                envTokenReader = { "env-token" },
+            ),
+            discoveredProjects = null,
+            workspaceState = null,
+            backgroundRunner = null,
+        )
+        val projectRef = DiscoveredSonarProject("/tmp/repo", "demo", null)
+
+        val diagnostics = findings.testConnection(profile, projectRef)
+
+        assertTrue(diagnostics.success)
+        assertEquals("env-token", recordedToken)
+        assertEquals(projectRef, recordedProject)
+    }
+
+    @Test
+    fun `findings service refresh loads findings immediately when background runner is disabled`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        val settings = SonarSettingsService().apply {
+            saveProfiles(listOf(profile))
+            setActiveProfileId(profile.id)
+        }
+        val discoveredProject = DiscoveredSonarProject("/tmp/repo", "demo", null)
+        val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
+        val expected = FindingsSnapshot(
+            issues = listOf(IssueFinding("I-1", "MAJOR", "BUG", "rule", "file", 1, "OPEN", null, emptyList(), "msg")),
+        )
+        val discoveredProjects = DiscoveredProjectService(
+            project = null,
+            settings = settings,
+            basePathOverride = "/tmp",
+            discoverProjects = { listOf(discoveredProject) },
+            subscribeToWorkspaceChanges = false,
+        )
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = error("not used")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot {
+                    assertEquals("env-token", token)
+                    assertEquals(discoveredProject, project)
+                    return expected
+                }
+            },
+            settings = settings,
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = null
+                    override fun set(
+                        attributes: com.intellij.credentialStore.CredentialAttributes,
+                        credentials: com.intellij.credentialStore.Credentials?,
+                    ) = Unit
+                },
+                envTokenReader = { "env-token" },
+            ),
+            discoveredProjects = discoveredProjects,
+            workspaceState = workspace,
+            backgroundRunner = null,
+        )
+        var result: Result<FindingsSnapshot>? = null
+
+        findings.refresh { result = it }
+
+        assertEquals(expected, findings.latestSnapshot())
+        assertEquals(expected, workspace.lastSnapshot)
+        assertEquals(profile, workspace.lastProfile)
+        assertFalse(workspace.loading)
+        assertNotNull(result)
+        assertEquals(expected, result!!.getOrNull())
+    }
+
+    @Test
+    fun `findings service refresh fails when token is blank`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        val settings = SonarSettingsService().apply {
+            saveProfiles(listOf(profile))
+            setActiveProfileId(profile.id)
+        }
+        val discoveredProjects = DiscoveredProjectService(
+            project = null,
+            settings = settings,
+            basePathOverride = "/tmp",
+            discoverProjects = { listOf(DiscoveredSonarProject("/tmp/repo", "demo", null)) },
+            subscribeToWorkspaceChanges = false,
+        )
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = error("not used")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot = error("should not be called")
+            },
+            settings = settings,
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = null
+                    override fun set(
+                        attributes: com.intellij.credentialStore.CredentialAttributes,
+                        credentials: com.intellij.credentialStore.Credentials?,
+                    ) = Unit
+                },
+                envTokenReader = { "   " },
+            ),
+            discoveredProjects = discoveredProjects,
+            workspaceState = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED),
+            backgroundRunner = null,
+        )
+        var result: Result<FindingsSnapshot>? = null
+
+        findings.refresh { result = it }
+
+        assertNotNull(result)
+        assertTrue(result!!.exceptionOrNull() is IllegalStateException)
+        assertEquals("No token available.", result!!.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `findings service refresh reports backend failures and clears loading state`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        val settings = SonarSettingsService().apply {
+            saveProfiles(listOf(profile))
+            setActiveProfileId(profile.id)
+        }
+        val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
+        val notifications = mutableListOf<Pair<String, String>>()
+        val discoveredProjects = DiscoveredProjectService(
+            project = null,
+            settings = settings,
+            basePathOverride = "/tmp",
+            discoverProjects = { listOf(DiscoveredSonarProject("/tmp/repo", "demo", null)) },
+            subscribeToWorkspaceChanges = false,
+        )
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = error("not used")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot {
+                    throw IllegalStateException()
+                }
+            },
+            settings = settings,
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = "secure-token"
+                    override fun set(
+                        attributes: com.intellij.credentialStore.CredentialAttributes,
+                        credentials: com.intellij.credentialStore.Credentials?,
+                    ) = Unit
+                },
+                envTokenReader = { null },
+            ),
+            discoveredProjects = discoveredProjects,
+            workspaceState = workspace,
+            notifier = { title, content -> notifications += title to content },
+            backgroundRunner = null,
+        )
+        var result: Result<FindingsSnapshot>? = null
+
+        findings.refresh { result = it }
+
+        assertFalse(workspace.loading)
+        assertEquals(listOf("Failed to load findings" to "Unknown error"), notifications)
+        assertNotNull(result)
+        assertTrue(result!!.isFailure)
+        assertTrue(assertFailsWith<IllegalStateException> { result!!.getOrThrow() }.message == null)
     }
 
     @Test

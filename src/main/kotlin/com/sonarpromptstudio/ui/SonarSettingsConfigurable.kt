@@ -71,10 +71,7 @@ class SonarSettingsConfigurable : Configurable {
             .addLabeledComponent("TLS Verification", tlsBox)
             .addLabeledComponent("Auth Mode", authBox)
             .addLabeledComponent("Token", tokenField)
-            .addComponent(toolbarPanel(
-                actionButton("Save Token Securely") { saveToken() },
-                actionButton("Remove Token") { removeToken() },
-            ))
+            .addComponent(toolbarPanel(actionButton("Remove Token") { removeToken() }))
             .addLabeledComponent("Default Prompt Target", defaultTargetBox)
             .addLabeledComponent("Default Prompt Style", defaultStyleBox)
             .addComponent(JBLabel("A secure token always overrides SONAR_TOKEN from local .env."))
@@ -156,6 +153,10 @@ class SonarSettingsConfigurable : Configurable {
         if (existingIndex >= 0) profiles[existingIndex] = updated else profiles += updated
         settings.saveProfiles(profiles)
         settings.setActiveProfileId(updated.id)
+        val token = String(tokenField.password).trim()
+        if (token.isNotBlank()) {
+            tokens.saveToken(updated.id, token)
+        }
         settings.setDefaultPromptTarget(defaultTargetBox.selectedItem as PromptTarget)
         settings.setDefaultPromptStyle(defaultStyleBox.selectedItem as PromptStyle)
         settings.clearPendingProfileDraft()
@@ -198,15 +199,6 @@ class SonarSettingsConfigurable : Configurable {
         resetProjectsAfterProfileDelete(selected.id, deletedWasActive)
     }
 
-    private fun saveToken() {
-        val profile = selectedProfile() ?: return
-        val token = String(tokenField.password).trim()
-        if (token.isNotBlank()) {
-            tokens.saveToken(profile.id, token)
-            Messages.showInfoMessage("Token saved securely.", DIALOG_TITLE)
-        }
-    }
-
     private fun removeToken() {
         val profile = selectedProfile() ?: return
         tokens.removeToken(profile.id)
@@ -227,7 +219,8 @@ class SonarSettingsConfigurable : Configurable {
             tlsVerificationEnabled = tlsBox.selectedItem as Boolean,
             authMode = authBox.selectedItem as AuthMode,
         )
-        val diagnostics = if (ideaProject != null) FindingsService.getInstance(ideaProject).testConnection(profile, projectRef) else null
+        val tokenOverride = String(tokenField.password).trim().ifBlank { null }
+        val diagnostics = if (ideaProject != null) FindingsService.getInstance(ideaProject).testConnection(profile, projectRef, tokenOverride) else null
         Messages.showInfoMessage(
             diagnostics?.let { "${it.summary}\n${it.details.joinToString("\n")}" } ?: "Open a project first to test the connection.",
             DIALOG_TITLE,

@@ -10,7 +10,7 @@ import com.sonarpromptstudio.model.PromptTarget
 import com.sonarpromptstudio.state.ConnectionProfileState
 import com.sonarpromptstudio.state.SonarSettingsState
 
-@State(name = "SonarPromptStudioSettings", storages = [Storage("sonarPromptStudio.xml")])
+@State(name = "SonarPromptStudioSettingsV2", storages = [Storage("sonarPromptStudio-v2.xml")])
 class SonarSettingsService : PersistentStateComponent<SonarSettingsState> {
     private var state = SonarSettingsState()
     private var pendingProfileDraft: ConnectionProfile? = null

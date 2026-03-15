@@ -3,8 +3,8 @@ package com.sonarpromptstudio.service
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.sonarpromptstudio.model.AuthMode
 import com.sonarpromptstudio.model.ConnectionProfile
+import com.sonarpromptstudio.model.AuthMode
 import com.sonarpromptstudio.model.CoverageFinding
 import com.sonarpromptstudio.model.DiscoveredSonarProject
 import com.sonarpromptstudio.model.DuplicationFinding
@@ -16,8 +16,12 @@ import com.sonarpromptstudio.model.PromptTarget
 import com.sonarpromptstudio.model.SonarProfileType
 import com.sonarpromptstudio.model.WorkspaceMode
 import com.sonarpromptstudio.state.SonarSettingsState
+import com.sonarpromptstudio.ui.SonarSettingsConfigurable
 import java.nio.file.Files
 import java.nio.file.Path
+import javax.swing.JComboBox
+import javax.swing.JPasswordField
+import javax.swing.JTextField
 import kotlin.io.path.deleteExisting
 import kotlin.io.path.deleteIfExists
 import kotlin.test.assertEquals
@@ -165,6 +169,30 @@ class ServicesPlatformTest : BasePlatformTestCase() {
         assertEquals("env-token", tokens.loadToken(project, "service-test-profile"))
     }
 
+    fun testSettingsApplySavesProfileAndTokenTogether() {
+        val configurable = SonarSettingsConfigurable()
+        configurable.createComponent()
+
+        textField(configurable, "nameField").text = "Cloud"
+        comboBox<SonarProfileType>(configurable, "typeBox").selectedItem = SonarProfileType.CLOUD
+        textField(configurable, "urlField").text = ConnectionProfile.DEFAULT_SONARCLOUD_URL
+        comboBox<Boolean>(configurable, "tlsBox").selectedItem = true
+        comboBox<AuthMode>(configurable, "authBox").selectedItem = AuthMode.BEARER
+        passwordField(configurable, "tokenField").text = "saved-token"
+
+        configurable.apply()
+
+        val savedProfile = settings.profiles().single()
+        val tokens = ApplicationManager.getApplication().getService(SecureTokenService::class.java)
+        try {
+            assertEquals("Cloud", savedProfile.name)
+            assertEquals(savedProfile.id, settings.activeProfileId())
+            assertEquals("saved-token", tokens.loadToken(project, savedProfile.id))
+        } finally {
+            tokens.removeToken(savedProfile.id)
+        }
+    }
+
     fun testDiscoveredProjectServiceRescansAndMaintainsActiveProject() {
         val moduleDir = projectDir.resolve("module")
         Files.createDirectories(moduleDir)
@@ -226,4 +254,14 @@ class ServicesPlatformTest : BasePlatformTestCase() {
         assertTrue(workspace.lastGeneratedPrompt.isBlank())
         assertTrue(workspace.selections.getValue(WorkspaceMode.ISSUES).selectedKeys.isEmpty())
     }
+
+    private fun textField(target: Any, name: String): JTextField =
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target) as JTextField
+
+    private fun passwordField(target: Any, name: String): JPasswordField =
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target) as JPasswordField
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> comboBox(target: Any, name: String): JComboBox<T> =
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target) as JComboBox<T>
 }

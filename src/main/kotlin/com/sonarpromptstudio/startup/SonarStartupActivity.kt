@@ -5,11 +5,13 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.startup.StartupManager
+import com.intellij.openapi.util.Key
 import com.sonarpromptstudio.model.AuthMode
-import com.sonarpromptstudio.model.ConnectionProfile
 import com.sonarpromptstudio.model.ConnectionDiagnostics
+import com.sonarpromptstudio.model.ConnectionProfile
 import com.sonarpromptstudio.model.SonarProfileType
 import com.sonarpromptstudio.service.DiscoveredProjectService
 import com.sonarpromptstudio.service.FindingsService
@@ -21,6 +23,26 @@ import java.util.concurrent.ConcurrentHashMap
 
 class SonarStartupActivity : StartupActivity.DumbAware {
     override fun runActivity(project: Project) {
+        SonarStartupRunner.run(project)
+    }
+}
+
+class SonarProjectActivity : ProjectActivity {
+    override suspend fun execute(project: Project) {
+        SonarStartupRunner.run(project)
+    }
+}
+
+private object SonarStartupRunner {
+    private val offeredProjects = ConcurrentHashMap.newKeySet<String>()
+    private val startupRanKey = Key.create<Boolean>("sonar.prompt.studio.startup.ran")
+
+    fun run(project: Project) {
+        synchronized(project) {
+            if (project.getUserData(startupRanKey) == true) return
+            project.putUserData(startupRanKey, true)
+        }
+
         val settings = SonarSettingsService.getInstance()
         val findings = FindingsService.getInstance(project)
         val tokenService = SecureTokenService.getInstance()
@@ -108,9 +130,5 @@ class SonarStartupActivity : StartupActivity.DumbAware {
                 UiFacade.openConfiguration(project)
             })
             .notify(project)
-    }
-
-    companion object {
-        private val offeredProjects = ConcurrentHashMap.newKeySet<String>()
     }
 }

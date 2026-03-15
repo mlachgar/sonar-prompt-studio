@@ -24,6 +24,7 @@
                     icon="/icons/sonarPromptStudio.svg"/>
 
         <postStartupActivity implementation="com.sonarpromptstudio.startup.SonarStartupActivity"/>
+        <projectActivity implementation="com.sonarpromptstudio.startup.SonarProjectActivity"/>
 
         <applicationConfigurable instance="com.sonarpromptstudio.ui.SonarSettingsConfigurable"
                                  displayName="Sonar Prompt Studio"
