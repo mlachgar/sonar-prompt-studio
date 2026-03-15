@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.sonarpromptstudio.intellij</id>
+    <id>com.sonarpromptstudio</id>
     <name>Sonar Prompt Studio</name>
     <vendor email="mohamed.lachgar@gmail.com" url="https://github.com/mlachgar">Mohamed LACHGAR</vendor>
     <description><![CDATA[
@@ -46,7 +46,7 @@
 
         <applicationConfigurable instance="com.sonarpromptstudio.ui.SonarSettingsConfigurable"
                                  displayName="Sonar Prompt Studio"
-                                 id="com.sonarpromptstudio.intellij.settings"/>
+                                 id="com.sonarpromptstudio.settings"/>
     </extensions>
 
     <actions>
