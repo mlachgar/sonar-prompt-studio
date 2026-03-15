@@ -31,7 +31,10 @@ class SecureTokenService(
     }
 
     private fun attributes(profileId: String): CredentialAttributes =
-        CredentialAttributes(generateServiceName(SERVICE_NAME, profileId), profileId, javaClass)
+        CredentialAttributes(
+            serviceName = generateServiceName(SERVICE_NAME, profileId),
+            userName = profileId,
+        )
 
     companion object {
         private const val SERVICE_NAME = "Sonar Prompt Studio"
