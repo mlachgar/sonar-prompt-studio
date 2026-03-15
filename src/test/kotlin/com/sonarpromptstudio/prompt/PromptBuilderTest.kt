@@ -121,4 +121,51 @@ class PromptBuilderTest {
 
         assertContains(prompt.content, "- No findings selected.")
     }
+
+    @Test
+    fun `renders balanced coverage prompt with repository and all numeric fallbacks`() {
+        val prompt = PromptBuilder.build(
+            PromptInput(
+                target = PromptTarget.CODEX,
+                style = PromptStyle.BALANCED,
+                source = WorkspaceMode.COVERAGE,
+                connectionMetadata = "server@test",
+                repositoryName = "demo",
+                generatedAt = Instant.parse("2024-01-01T00:00:00Z"),
+                selectedCoverageTargets = listOf(
+                    CoverageFinding("C1", "src/Test.kt", null, null, null, null, null),
+                ),
+            ),
+        )
+
+        assertEquals("Codex Coverage Prompt", prompt.title)
+        assertContains(prompt.content, "Be concise, but include enough explanation to justify each fix.")
+        assertContains(prompt.content, "Repository: demo")
+        assertContains(prompt.content, "coverage=n/a line=n/a branch=n/a uncoveredLines=n/a uncoveredBranches=n/a")
+    }
+
+    @Test
+    fun `renders minimal issue and hotspot findings without line suffixes`() {
+        val prompt = PromptBuilder.build(
+            PromptInput(
+                target = PromptTarget.CLAUDE,
+                style = PromptStyle.MINIMAL,
+                source = WorkspaceMode.ISSUES,
+                connectionMetadata = "server@test",
+                repositoryName = null,
+                generatedAt = Instant.parse("2024-01-01T00:00:00Z"),
+                selectedIssues = listOf(
+                    IssueFinding("I1", "MINOR", "CODE_SMELL", "rule-1", "src/App.kt", null, "OPEN", null, emptyList(), "Fix this"),
+                ),
+                selectedHotspots = listOf(
+                    HotspotFinding("H1", "src/Security.kt", null, null, null, "Review this"),
+                ),
+            ),
+        )
+
+        assertContains(prompt.content, "Keep the response brief and execution-focused.")
+        assertContains(prompt.content, "Issue I1: [MINOR/CODE_SMELL] Fix this | rule=rule-1 | file=src/App.kt")
+        assertContains(prompt.content, "Hotspot H1: component=src/Security.kt status=n/a probability=n/a message=Review this")
+        assertTrue("Repository:" !in prompt.content)
+    }
 }

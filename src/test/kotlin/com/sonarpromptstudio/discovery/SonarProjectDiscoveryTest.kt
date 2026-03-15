@@ -5,6 +5,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SonarProjectDiscoveryTest {
@@ -95,5 +96,31 @@ class SonarProjectDiscoveryTest {
         assertEquals(1, discovered.size)
         assertEquals("properties-key", discovered.single().sonarProjectKey)
         assertEquals("properties-org", discovered.single().sonarOrganization)
+    }
+
+    @Test
+    fun `discovers gradle map syntax and trims blank organization from properties`() {
+        val root = createTempDirectory("sonar-discovery-variants")
+        root.resolve("sonar-project.properties").writeText(
+            """
+            sonar.projectKey=root-key
+            sonar.organization=
+            """.trimIndent(),
+        )
+        val child = root.resolve("module").createDirectories()
+        child.resolve("build.gradle").writeText(
+            """
+            ext.sonarProps = [
+                "sonar.projectKey": "child-key",
+                "sonar.organization": "child-org"
+            ]
+            """.trimIndent(),
+        )
+
+        val discovered = SonarProjectDiscovery.discover(root)
+
+        assertEquals(2, discovered.size)
+        assertNull(discovered.single { it.sonarProjectKey == "root-key" }.sonarOrganization)
+        assertEquals("child-org", discovered.single { it.sonarProjectKey == "child-key" }.sonarOrganization)
     }
 }

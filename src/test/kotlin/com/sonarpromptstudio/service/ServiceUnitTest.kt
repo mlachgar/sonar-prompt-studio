@@ -361,6 +361,22 @@ class ServiceUnitTest {
     }
 
     @Test
+    fun `discovered project service keeps active path unset when scan finds no projects`() {
+        val settings = SonarSettingsService()
+        val service = DiscoveredProjectService(
+            project = null,
+            settings = settings,
+            basePathOverride = "/tmp",
+            discoverProjects = { emptyList() },
+            subscribeToWorkspaceChanges = false,
+        )
+
+        assertTrue(service.allProjects().isEmpty())
+        assertNull(settings.activeProjectPath())
+        assertNull(service.activeProject())
+    }
+
+    @Test
     fun `workspace state does not mark prompt dirty when selection signature is unchanged`() {
         val workspace = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED)
 
@@ -556,6 +572,105 @@ class ServiceUnitTest {
         assertNotNull(result)
         assertTrue(result!!.exceptionOrNull() is IllegalStateException)
         assertEquals("No token available.", result!!.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `findings service refresh fails when active profile is missing`() {
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = error("unused")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot = error("should not be called")
+            },
+            settings = SonarSettingsService(),
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = "stored-token"
+                    override fun set(attributes: com.intellij.credentialStore.CredentialAttributes, credentials: com.intellij.credentialStore.Credentials?) = Unit
+                },
+                envTokenReader = { null },
+            ),
+            discoveredProjects = DiscoveredProjectService(
+                project = null,
+                settings = SonarSettingsService(),
+                basePathOverride = "/tmp",
+                discoverProjects = { listOf(DiscoveredSonarProject("/tmp/repo", "demo", null)) },
+                subscribeToWorkspaceChanges = false,
+            ),
+            workspaceState = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED),
+            backgroundRunner = null,
+        )
+        var result: Result<FindingsSnapshot>? = null
+
+        findings.refresh { result = it }
+
+        assertNotNull(result)
+        assertTrue(result!!.isFailure)
+        assertEquals("Missing active profile or project.", result!!.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `findings service refresh fails when active project is missing`() {
+        val profile = ConnectionProfile(
+            id = "p1",
+            name = "Server",
+            type = SonarProfileType.SERVER,
+            baseUrl = "http://localhost:9000",
+            authMode = AuthMode.BEARER,
+        )
+        val settings = SonarSettingsService().apply {
+            saveProfiles(listOf(profile))
+            setActiveProfileId(profile.id)
+        }
+        val findings = FindingsService(
+            project = dummyProject,
+            backend = object : SonarBackend {
+                override fun testConnection(
+                    profile: ConnectionProfile,
+                    token: String?,
+                    project: DiscoveredSonarProject?,
+                ): ConnectionDiagnostics = error("unused")
+
+                override fun loadFindings(
+                    profile: ConnectionProfile,
+                    token: String,
+                    project: DiscoveredSonarProject,
+                ): FindingsSnapshot = error("should not be called")
+            },
+            settings = settings,
+            tokens = SecureTokenService(
+                tokenStore = object : TokenStore {
+                    override fun getPassword(attributes: com.intellij.credentialStore.CredentialAttributes): String? = "stored-token"
+                    override fun set(attributes: com.intellij.credentialStore.CredentialAttributes, credentials: com.intellij.credentialStore.Credentials?) = Unit
+                },
+                envTokenReader = { null },
+            ),
+            discoveredProjects = DiscoveredProjectService(
+                project = null,
+                settings = settings,
+                basePathOverride = "/tmp",
+                discoverProjects = { emptyList() },
+                subscribeToWorkspaceChanges = false,
+            ),
+            workspaceState = WorkspaceStateService(null, PromptTarget.CODEX, PromptStyle.BALANCED),
+            backgroundRunner = null,
+        )
+        var result: Result<FindingsSnapshot>? = null
+
+        findings.refresh { result = it }
+
+        assertNotNull(result)
+        assertTrue(result!!.isFailure)
+        assertEquals("Missing active profile or project.", result!!.exceptionOrNull()?.message)
     }
 
     @Test

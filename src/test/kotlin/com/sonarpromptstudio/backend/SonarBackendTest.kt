@@ -101,6 +101,14 @@ class SonarBackendTest {
     }
 
     @Test
+    fun `uses default sonarcloud url when cloud base url is blank`() {
+        val diagnostics = backend.testConnection(cloudProfile("   "), null, null)
+
+        assertFalse(diagnostics.success)
+        assertEquals("Authentication failure", diagnostics.summary)
+    }
+
+    @Test
     fun `reports authentication failure when validate endpoint rejects credentials`() {
         startServer { exchange ->
             when (exchange.requestURI.path) {
@@ -173,6 +181,19 @@ class SonarBackendTest {
         assertFalse(diagnostics.success)
         assertEquals("Network failure", diagnostics.summary)
         assertContains(diagnostics.details.single(), "Authentication failure (401)")
+    }
+
+    @Test
+    fun `reports network failure when api returns forbidden`() {
+        startServer { exchange ->
+            exchange.respond("""{"errors":[{"msg":"forbidden"}]}""", 403)
+        }
+
+        val diagnostics = backend.testConnection(serverProfile(serverBaseUrl()), "token", serverProject)
+
+        assertFalse(diagnostics.success)
+        assertEquals("Network failure", diagnostics.summary)
+        assertContains(diagnostics.details.single(), "Authentication failure (403)")
     }
 
     @Test
@@ -370,6 +391,70 @@ class SonarBackendTest {
         val coverageRequest = requests.first { it.path == "/api/measures/component_tree" }
         assertEquals("demo-key", coverageRequest.query["component"])
         assertEquals("77", coverageRequest.query["pullRequest"])
+    }
+
+    @Test
+    fun `omits optional query parameters for cloud findings without organization branch or pull request`() {
+        val requests = mutableListOf<RecordedRequest>()
+        startServer { exchange ->
+            requests += exchange.record()
+            when (exchange.requestURI.path) {
+                "/api/issues/search" -> exchange.respond("""{"issues":[]}""")
+                "/api/measures/component_tree" -> exchange.respond(
+                    """
+                    {"components":[
+                      {"key":"C-1","path":"src/App.kt","measures":[
+                        {"metric":"uncovered_lines","value":"1"}
+                      ]}
+                    ]}
+                    """.trimIndent(),
+                )
+                "/api/hotspots/search" -> exchange.respond("""{"hotspots":[]}""")
+                else -> exchange.respond("""{}""")
+            }
+        }
+
+        val projectWithoutOrg = DiscoveredSonarProject("/tmp/repo", "demo-key", " ")
+        val snapshot = backend.loadFindings(
+            profile = ConnectionProfile(
+                id = "cloud",
+                name = "Cloud",
+                type = SonarProfileType.CLOUD,
+                baseUrl = serverBaseUrl(),
+                branchOverride = null,
+                pullRequestOverride = null,
+                authMode = AuthMode.BEARER,
+            ),
+            token = "token",
+            project = projectWithoutOrg,
+        )
+
+        assertEquals(1, snapshot.coverage.size)
+        requests.forEach { request ->
+            assertFalse(request.query.containsKey("organization"))
+            assertFalse(request.query.containsKey("branch"))
+            assertFalse(request.query.containsKey("pullRequest"))
+        }
+    }
+
+    @Test
+    fun `uses insecure client path when tls verification is disabled`() {
+        val clientMethod = SonarHttpBackend::class.java.getDeclaredMethod("client", ConnectionProfile::class.java)
+        clientMethod.isAccessible = true
+
+        val client = clientMethod.invoke(
+            backend,
+            ConnectionProfile(
+                id = "server",
+                name = "Server",
+                type = SonarProfileType.SERVER,
+                baseUrl = "https://example.test",
+                tlsVerificationEnabled = false,
+                authMode = AuthMode.BEARER,
+            ),
+        )
+
+        assertNotNull(client)
     }
 
     @Test
